@@ -1,0 +1,213 @@
+Hi Write me a script that we can give it a url and it will run the blackbox test on it and give us the result back
+ 
+We can use that for testing
+ 
+As an added bonus also allow us to pass in an option such as to use one of the modules such as "http_skip_verify"
+ 
+right now I do a bunch of manual curls like this
+ 
+curl -v "http://localhost:9115/probe?target=https://mvmpamdaeis04.aeth.aetna.com/ae/Workflow/WorkFlowDataService.svc&debug=true&module=http_401%22
+
+
+"""
+Usage:
+  python blackbox_v1.py <target_url> [options]
+Examples:
+  python blackbox_v1.py https://example.com
+  python blackbox_v1.py https://example.com --module http_skip_verify
+  python blackbox_v1.py https://example.com --module http_401922 --blackbox http://myserver:9115
+  python blackbox_v1.py https://example.com --module http_2xx --no-debug --output json
+"""
+import argparse
+import json
+import sys
+import urllib.parse
+import urllib.request
+import urllib.error
+from datetime import datetime
+# ── Defaults ──────────────────────────────────────────────────────────────────
+DEFAULT_BLACKBOX_URL = "http://localhost:9115"
+DEFAULT_MODULE = "http_2xx"
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def build_probe_url(blackbox_url: str, target: str, module: str, debug: bool) -> str:
+    """Construct the full probe URL with query parameters."""
+    params = {"target": target, "module": module}
+    if debug:
+        params["debug"] = "true"
+    query = urllib.parse.urlencode(params)
+    return f"{blackbox_url.rstrip('/')}/probe?{query}"
+def parse_prometheus_text(raw: str) -> dict:
+    """
+    Very lightweight Prometheus text-format parser.
+    Returns:
+      {
+        "probe_success": 0 | 1,
+        "metrics": {metric_name: [(labels_dict, value), ...]},
+        "debug_log": [lines...] # only present when debug=true
+      }
+    """
+    result = {"probe_success": None, "metrics": {}, "debug_log": []}
+    in_debug = False
+    for line in raw.splitlines():
+        # Prometheus exposition format ignores lines starting with #
+        # but debug output (when enabled) is mixed in as comment-like lines
+        if line.startswith("# DEBUG") or in_debug:
+            in_debug = True
+            result["debug_log"].append(line)
+            continue
+        if line.startswith("#") or not line.strip():
+            continue
+        # Parse metric_name{label="val",...} numeric_value
+        try:
+            if "{" in line:
+                name_part, rest = line.split("{", 1)
+                labels_str, value_str = rest.rsplit("}", 1)
+                name = name_part.strip()
+                value = float(value_str.strip())
+                # parse labels
+                labels = {}
+                for kv in labels_str.split(","):
+                    if "=" in kv:
+                        k, v = kv.split("=", 1)
+                        labels[k.strip()] = v.strip().strip('"')
+            else:
+                parts = line.rsplit(None, 1)
+                name, value = parts[0].strip(), float(parts[1].strip())
+                labels = {}
+            result["metrics"].setdefault(name, []).append((labels, value))
+            if name == "probe_success":
+                result["probe_success"] = int(value)
+        except (ValueError, IndexError):
+            pass # skip lines we can't parse
+    return result
+def run_probe(probe_url: str, timeout: int) -> tuple[int, str]:
+    """
+    Fetch the probe URL. Returns (http_status_code, response_body).
+    Raises on network-level errors.
+    """
+    req = urllib.request.Request(probe_url)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", errors="replace")
+def print_human(target: str, module: str, probe_url: str,
+                http_status: int, parsed: dict, show_metrics: bool,
+                show_debug: bool) -> None:
+    """Pretty-print results for humans."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ok = parsed["probe_success"]
+    symbol = "✅ SUCCESS" if ok == 1 else ("❌ FAILED" if ok == 0 else "⚠️ UNKNOWN")
+    print()
+    print("=" * 70)
+    print(f" Blackbox Probe Result [{now}]")
+    print("=" * 70)
+    print(f" Target : {target}")
+    print(f" Module : {module}")
+    print(f" URL : {probe_url}")
+    print(f" HTTP : {http_status}")
+    print(f" Result : {symbol}")
+    print("=" * 70)
+    if show_metrics and parsed["metrics"]:
+        print("\n Key Metrics")
+        print(" " + "-" * 50)
+        for name, entries in sorted(parsed["metrics"].items()):
+            for labels, value in entries:
+                label_str = ""
+                if labels:
+                    label_str = "{" + ", ".join(f'{k}="{v}"' for k, v in labels.items()) + "}"
+                # Format value as int when it's a whole number
+                val_str = str(int(value)) if value == int(value) else f"{value:.6f}"
+                print(f" {name}{label_str} {val_str}")
+    if show_debug and parsed["debug_log"]:
+        print("\n Debug Log")
+        print(" " + "-" * 50)
+        for line in parsed["debug_log"]:
+            print(f" {line}")
+    print()
+def print_json(target: str, module: str, probe_url: str,
+               http_status: int, parsed: dict) -> None:
+    """Print results as JSON (CI/scripting friendly)."""
+    out = {
+        "timestamp" : datetime.utcnow().isoformat() + "Z",
+        "target" : target,
+        "module" : module,
+        "probe_url" : probe_url,
+        "http_status" : http_status,
+        "probe_success": parsed["probe_success"],
+        "metrics" : {
+            name: [{"labels": lbl, "value": val} for lbl, val in entries]
+            for name, entries in parsed["metrics"].items()
+        },
+        "debug_log" : parsed["debug_log"],
+    }
+    print(json.dumps(out, indent=2))
+# ── CLI ────────────────────────────────────────────────────────────────────────
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="Run a Blackbox Exporter probe and display the result.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    p.add_argument("target",
+                   help="Target URL to probe (e.g. https://example.com)")
+    p.add_argument("--blackbox", "-b",
+                   default=DEFAULT_BLACKBOX_URL,
+                   metavar="URL",
+                   help=f"Blackbox exporter base URL [default: {DEFAULT_BLACKBOX_URL}]")
+    p.add_argument("--module", "-m",
+                   default=DEFAULT_MODULE,
+                   help=f"Probe module to use [default: {DEFAULT_MODULE}]\n"
+                        "Common modules: http_2xx, http_skip_verify, http_401, "
+                        "tcp_connect, icmp, dns")
+    p.add_argument("--no-debug",
+                   action="store_true",
+                   help="Disable debug output from the blackbox exporter")
+    p.add_argument("--timeout", "-t",
+                   type=int, default=30,
+                   help="HTTP request timeout in seconds [default: 30]")
+    p.add_argument("--output", "-o",
+                   choices=["human", "json"],
+                   default="human",
+                   help="Output format [default: human]")
+    p.add_argument("--no-metrics",
+                   action="store_true",
+                   help="Hide the metrics table in human output")
+    p.add_argument("--fail-on-probe",
+                   action="store_true",
+                   help="Exit with code 1 when probe_success == 0 (useful in CI)")
+    return p
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    debug = not args.no_debug
+    probe_url = build_probe_url(args.blackbox, args.target, args.module, debug)
+    try:
+        http_status, body = run_probe(probe_url, args.timeout)
+    except urllib.error.URLError as exc:
+        print(f"\n[ERROR] Could not reach blackbox exporter at {args.blackbox}")
+        print(f" {exc.reason}")
+        print(f"\n Is the exporter running? Try:")
+        print(f" curl -v '{probe_url}'\n")
+        sys.exit(2)
+    except Exception as exc:
+        print(f"\n[ERROR] Unexpected error: {exc}\n")
+        sys.exit(2)
+    parsed = parse_prometheus_text(body)
+    if args.output == "json":
+        print_json(args.target, args.module, probe_url, http_status, parsed)
+    else:
+        print_human(
+            target = args.target,
+            module = args.module,
+            probe_url = probe_url,
+            http_status = http_status,
+            parsed = parsed,
+            show_metrics = not args.no_metrics,
+            show_debug = debug,
+        )
+    # Optional non-zero exit for CI pipelines
+    if args.fail_on_probe and parsed["probe_success"] != 1:
+        sys.exit(1)
+if __name__ == "__main__":
+    main()
