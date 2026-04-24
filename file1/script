@@ -349,3 +349,15 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+putsurl.json
+$ vi script.py
+$ python script.py
+[ERROR] Please provide a URL or use --file inputsurl.json
+$ ls
+inputsurl.json  script.py
+$
