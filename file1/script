@@ -211,3 +211,129 @@ def main() -> None:
         sys.exit(1)
 if __name__ == "__main__":
     main()
+
+
+
+
+
+import argparse
+import json
+import sys
+import urllib.parse
+import urllib.request
+import urllib.error
+from datetime import datetime
+
+# -- Defaults --
+DEFAULT_BLACKBOX_URL = "http://localhost:9115"
+DEFAULT_MODULE = "http_2xx"
+
+# (Keeping your teammate's helper functions exactly as they were)
+def build_probe_url(blackbox_url: str, target: str, module: str, debug: bool) -> str:
+    params = {"target": target, "module": module}
+    if debug:
+        params["debug"] = "true"
+    query = urllib.parse.urlencode(params)
+    return f"{blackbox_url.rstrip('/')}/probe?{query}"
+
+def parse_prometheus_text(raw: str) -> dict:
+    result = {"probe_success": None, "metrics": {}, "debug_log": []}
+    in_debug = False
+    for line in raw.splitlines():
+        if line.startswith("# DEBUG") or in_debug:
+            in_debug = True
+            result["debug_log"].append(line)
+            continue
+        if line.startswith("#") or not line.strip():
+            continue
+        try:
+            if "{" in line:
+                name_part, rest = line.split("{", 1)
+                labels_str, value_str = rest.rsplit("}", 1)
+                name = name_part.strip()
+                value = float(value_str.strip())
+                labels = {kv.split("=")[0].strip(): kv.split("=")[1].strip().strip('"') for kv in labels_str.split(",") if "=" in kv}
+            else:
+                parts = line.rsplit(None, 1)
+                name, value = parts[0].strip(), float(parts[1].strip())
+                labels = {}
+            result["metrics"].setdefault(name, []).append((labels, value))
+            if name == "probe_success":
+                result["probe_success"] = int(value)
+        except: pass
+    return result
+
+def run_probe(probe_url: str, timeout: int) -> tuple[int, str]:
+    req = urllib.request.Request(probe_url)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", errors="replace")
+
+def get_json_struct(target, module, probe_url, http_status, parsed):
+    """Helper to format the result for JSON storage."""
+    return {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "target": target,
+        "module": module,
+        "probe_url": probe_url,
+        "http_status": http_status,
+        "probe_success": parsed["probe_success"],
+        "metrics": {name: [{"labels": l, "value": v} for l, v in ent] for name, ent in parsed["metrics"].items()},
+        "debug_log": parsed["debug_log"]
+    }
+
+# -- Updated CLI Logic --
+def main():
+    parser = argparse.ArgumentParser(description="Blackbox Prober with Batch Support")
+    # Make target optional if --file is used
+    parser.add_argument("target", nargs="?", help="Target URL to probe")
+    parser.add_argument("--file", "-f", help="Path to input JSON file (e.g. inputsurl.json)")
+    parser.add_argument("--blackbox", "-b", default=DEFAULT_BLACKBOX_URL)
+    parser.add_argument("--module", "-m", default=DEFAULT_MODULE)
+    parser.add_argument("--timeout", "-t", type=int, default=30)
+    args = parser.parse_args()
+
+    targets = []
+    # 1. Determine which URLs to run
+    if args.file:
+        try:
+            with open(args.file, 'r') as f:
+                targets = json.load(f)
+                if not isinstance(targets, list):
+                    print("Error: JSON file must contain a list of strings.")
+                    sys.exit(1)
+        except Exception as e:
+            print(f"Error reading file: {e}")
+            sys.exit(1)
+    elif args.target:
+        targets = [args.target]
+    else:
+        print("Error: You must provide either a URL or a --file.")
+        sys.exit(1)
+
+    all_results = []
+
+    # 2. Loop through and run probes
+    for url in targets:
+        print(f"Probing: {url} ...", end=" ", flush=True)
+        probe_url = build_probe_url(args.blackbox, url, args.module, True)
+        try:
+            status, body = run_probe(probe_url, args.timeout)
+            parsed = parse_prometheus_text(body)
+            result_data = get_json_struct(url, args.module, probe_url, status, parsed)
+            all_results.append(result_data)
+            print("✅" if parsed["probe_success"] == 1 else "❌")
+        except Exception as e:
+            print(f"💥 Error: {e}")
+
+    # 3. Save to output file
+    output_filename = "outputurl.json"
+    with open(output_filename, 'w') as f:
+        json.dump(all_results, f, indent=2)
+    
+    print(f"\nTask Complete. Results saved to {output_filename}")
+
+if __name__ == "__main__":
+    main()
