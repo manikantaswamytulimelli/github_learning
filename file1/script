@@ -279,3 +279,283 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+ cat outputurl.json
+[
+  {
+    "timestamp": "2026-04-27T10:04:54.868537Z",
+    "target": "https://www.google.com",
+    "module": "http_2xx",
+    "probe_url": "http://localhost:9115/probe?target=https%3A%2F%2Fwww.google.com&module=http_2xx&debug=true",
+    "http_status": 200,
+    "probe_success": 1,
+    "metrics": {
+      "probe_dns_lookup_time_seconds": [
+        {
+          "labels": {},
+          "value": 0.035167047
+        }
+      ],
+      "probe_duration_seconds": [
+        {
+          "labels": {},
+          "value": 0.121225913
+        }
+      ],
+      "probe_failed_due_to_regex": [
+        {
+          "labels": {},
+          "value": 0.0
+        }
+      ],
+      "probe_http_content_length": [
+        {
+          "labels": {},
+          "value": -1.0
+        }
+      ],
+      "probe_http_duration_seconds": [
+        {
+          "labels": {
+            "phase": "connect"
+          },
+          "value": 0.005384171
+        },
+        {
+          "labels": {
+            "phase": "processing"
+          },
+          "value": 0.04384778
+        },
+        {
+          "labels": {
+            "phase": "resolve"
+          },
+          "value": 0.035167047
+        },
+        {
+          "labels": {
+            "phase": "tls"
+          },
+          "value": 0.015740037
+        },
+        {
+          "labels": {
+            "phase": "transfer"
+          },
+          "value": 0.020734191
+        }
+      ],
+      "probe_http_redirects": [
+        {
+          "labels": {},
+          "value": 0.0
+        }
+      ],
+      "probe_http_ssl": [
+        {
+          "labels": {},
+          "value": 1.0
+        }
+      ],
+      "probe_http_status_code": [
+        {
+          "labels": {},
+          "value": 200.0
+        }
+      ],
+      "probe_http_uncompressed_body_length": [
+        {
+          "labels": {},
+          "value": 79836.0
+        }
+      ],
+      "probe_http_version": [
+        {
+          "labels": {},
+          "value": 2.0
+        }
+      ],
+      "probe_ip_addr_hash": [
+        {
+          "labels": {},
+          "value": 4228748472.0
+        }
+      ],
+      "probe_ip_protocol": [
+        {
+          "labels": {},
+          "value": 4.0
+        }
+      ],
+      "probe_ssl_earliest_cert_expiry": [
+        {
+          "labels": {},
+          "value": 1782117455.0
+        }
+      ],
+      "probe_ssl_last_chain_expiry_timestamp_seconds": [
+        {
+          "labels": {},
+          "value": 1782117455.0
+        }
+      ],
+      "probe_ssl_last_chain_info": [
+        {
+          "labels": {
+            "fingerprint_sha256": "0742f01340b6a16231628e962f968c7cc05bf08adb0ba6e24414417db27cb974",
+            "issuer": "CN=WR2",
+            "O": "Google Trust Services",
+            "C": "US",
+            "subject": "CN=www.google.com",
+            "subjectalternative": "www.google.com"
+          },
+          "value": 1.0
+        }
+      ],
+      "probe_success": [
+        {
+          "labels": {},
+          "value": 1.0
+        }
+      ],
+      "probe_tls_version_info": [
+        {
+          "labels": {
+            "version": "TLS 1.3"
+          },
+          "value": 1.0
+        }
+      ],
+      "ttl:": [
+        {
+          "labels": {},
+          "value": 64.0
+        }
+      ]
+    },
+    "debug_log": []
+  },
+  {
+    "timestamp": "2026-04-27T10:04:55.142073Z",
+    "target": "https://10.85.212.10/status-0123456789abcdef",
+    "module": "http_2xx",
+    "probe_url": "http://localhost:9115/probe?target=https%3A%2F%2F10.85.212.10%2Fstatus-0123456789abcdef&module=http_2xx&debug=true",
+    "http_status": 200,
+    "probe_success": 0,
+    "metrics": {
+      "probe_dns_lookup_time_seconds": [
+        {
+          "labels": {},
+          "value": 9.816e-06
+        }
+      ],
+      "probe_duration_seconds": [
+        {
+          "labels": {},
+          "value": 0.271067266
+        }
+      ],
+      "probe_failed_due_to_regex": [
+        {
+          "labels": {},
+          "value": 0.0
+        }
+      ],
+      "probe_http_content_length": [
+        {
+          "labels": {},
+          "value": 0.0
+        }
+      ],
+      "probe_http_duration_seconds": [
+        {
+          "labels": {
+            "phase": "connect"
+          },
+          "value": 0.0
+        },
+        {
+          "labels": {
+            "phase": "processing"
+          },
+          "value": 0.0
+        },
+        {
+          "labels": {
+            "phase": "resolve"
+          },
+          "value": 9.816e-06
+        },
+        {
+          "labels": {
+            "phase": "tls"
+          },
+          "value": 0.0
+        },
+        {
+          "labels": {
+            "phase": "transfer"
+          },
+          "value": 0.0
+        }
+      ],
+      "probe_http_redirects": [
+        {
+          "labels": {},
+          "value": 0.0
+        }
+      ],
+      "probe_http_ssl": [
+        {
+          "labels": {},
+          "value": 0.0
+        }
+      ],
+      "probe_http_status_code": [
+        {
+          "labels": {},
+          "value": 0.0
+        }
+      ],
+      "probe_http_uncompressed_body_length": [
+        {
+          "labels": {},
+          "value": 0.0
+        }
+      ],
+      "probe_http_version": [
+        {
+          "labels": {},
+          "value": 0.0
+        }
+      ],
+      "probe_ip_addr_hash": [
+        {
+          "labels": {},
+          "value": 1316291946.0
+        }
+      ],
+      "probe_ip_protocol": [
+        {
+          "labels": {},
+          "value": 4.0
+        }
+      ],
+      "probe_success": [
+        {
+          "labels": {},
+          "value": 0.0
+        }
+      ],
+      "ttl:": [
+        {
+          "labels": {},
+          "value": 64.0
+        }
+      ]
+    },
+    "debug_log": []
+  }
+]$
