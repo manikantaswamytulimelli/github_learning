@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import sys
+import urllib.parse
+import urllib.request
+import urllib.error
+from datetime import datetime
+
+# -- Defaults --
+DEFAULT_BLACKBOX_URL = "http://localhost:9115"
+DEFAULT_MODULE = "http_2xx"
+DEFAULT_INPUT_FILE = "inputsurl.json" # Now defaults to your file
+
+def build_probe_url(blackbox_url, target, module, debug):
+    """Construct the full probe URL with query parameters."""
+    params = {"target": target, "module": module}
+    if debug:
+        params["debug"] = "true"
+    query = urllib.parse.urlencode(params)
+    return "{}/probe?{}".format(blackbox_url.rstrip('/'), query)
+
+def parse_prometheus_text(raw):
+    """Lightweight Prometheus text-format parser for Python 3.6."""
+    result = {"probe_success": None, "metrics": {}, "debug_log": []}
+    in_debug = False
+    for line in raw.splitlines():
+        if line.startswith("# DEBUG") or in_debug:
+            in_debug = True
+            result["debug_log"].append(line)
+            continue
+        if line.startswith("#") or not line.strip():
+            continue
+        try:
+            if "{" in line:
+                name_part, rest = line.split("{", 1)
+                labels_str, value_str = rest.rsplit("}", 1)
+                name = name_part.strip()
+                value = float(value_str.strip())
+                labels = {}
+                for kv in labels_str.split(","):
+                    if "=" in kv:
+                        k, v = kv.split("=", 1)
+                        labels[k.strip()] = v.strip().strip('"')
+            else:
+                parts = line.rsplit(None, 1)
+                name, value = parts[0].strip(), float(parts[1].strip())
+                labels = {}
+            result["metrics"].setdefault(name, []).append((labels, value))
+            if name == "probe_success":
+                result["probe_success"] = int(value)
+        except:
+            pass
+    return result
+
+def run_probe(probe_url, timeout):
+    """Fetch the probe URL. Compatible with Python 3.6 urllib."""
+    req = urllib.request.Request(probe_url)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.getcode(), resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", errors="replace")
+
+def get_json_struct(target, module, probe_url, http_status, parsed):
+    """Format results for JSON output."""
+    return {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "target": target,
+        "module": module,
+        "probe_url": probe_url,
+        "http_status": http_status,
+        "probe_success": parsed["probe_success"],
+        "metrics": {
+            name: [{"labels": lbl, "value": val} for lbl, val in entries]
+            for name, entries in parsed["metrics"].items()
+        },
+        "debug_log": parsed["debug_log"],
+    }
+
+def main():
+    parser = argparse.ArgumentParser(description="Blackbox Prober for Python 3.6")
+    parser.add_argument("target", nargs="?", help="Target URL to probe")
+    parser.add_argument("--file", "-f", help="Path to input JSON file")
+    parser.add_argument("--blackbox", "-b", default=DEFAULT_BLACKBOX_URL)
+    parser.add_argument("--module", "-m", default=DEFAULT_MODULE)
+    parser.add_argument("--timeout", "-t", type=int, default=30)
+    args = parser.parse_args()
+
+    targets = []
+
+    # Logic Change: If no target and no file arg, use the default file name
+    input_source = args.file if args.file else (None if args.target else DEFAULT_INPUT_FILE)
+
+    if input_source:
+        try:
+            with open(input_source, 'r') as f:
+                targets = json.load(f)
+        except Exception as e:
+            print("[ERROR] Could not read file {}: {}".format(input_source, e))
+            sys.exit(1)
+    elif args.target:
+        targets = [args.target]
+
+    all_results = []
+
+    print("\nStarting probes...")
+    for url in targets:
+        # Replaced emoji with plain text and status 0/1
+        print("Probing: {} ...".format(url), end=" ", flush=True)
+        probe_url = build_probe_url(args.blackbox, url, args.module, True)
+        try:
+            status, body = run_probe(probe_url, args.timeout)
+            parsed = parse_prometheus_text(body)
+            all_results.append(get_json_struct(url, args.module, probe_url, status, parsed))
+
+            # Logic Change: Return Status: 1 or Status: 0
+            res_status = parsed["probe_success"]
+            if res_status is None: res_status = 0
+            print("Status: {}".format(res_status))
+
+        except Exception as e:
+            print("ERROR: {}".format(e))
+
+    output_file = "outputurl.json"
+    try:
+        with open(output_file, 'w') as f:
+            json.dump(all_results, f, indent=2)
+        print("\n[DONE] Results saved to: {}".format(output_file))
+    except Exception as e:
+        print("\n[ERROR] Could not save results: {}".format(e))
+
+if __name__ == "__main__":
+    main()
+
+
+
+    ok I need to regroup with you guys to see what we are working on too
+ 
+if both --file and <target> are entered will it run over both sets of urls?
+ 
+in the input file can you specify a module for each url if needed
+ 
+in the help can you list all active modules
+ 
+(or add an option to list all active modules)
+ 
+you can get all active modules from blackbox_baseconfig.yml
+ 
+maybe a --listmodules option
+ 
