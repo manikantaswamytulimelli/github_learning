@@ -281,4 +281,185 @@ $
 you can get all active modules from blackbox_baseconfig.yml
  
 maybe a --listmodules option
+
+
+
+
+
+
+
+
+
+
+
+
+
+#!/usr/bin/env python3
+
+import argparse
+import json
+import sys
+import os
+import urllib.parse
+import urllib.request
+import urllib.error
+from datetime import datetime
+
+# -- Configuration Defaults --
+DEFAULT_BLACKBOX_URL = "http://localhost:9115"
+DEFAULT_MODULE = "http_2xx"
+CONFIG_FILENAME = "blackbox_baseconfig.yml"
+
+def find_config_file(filename):
+    """
+    Professionally search for the config file starting from the current directory
+    and moving up the directory tree to the root.
+    """
+    curr_dir = os.getcwd()
+    while True:
+        check_path = os.path.join(curr_dir, filename)
+        if os.path.exists(check_path):
+            return check_path
+        
+        # Move up one directory
+        parent_dir = os.path.dirname(curr_dir)
+        
+        # If the parent is the same as current, we've hit the root
+        if parent_dir == curr_dir:
+            break
+        curr_dir = parent_dir
+        
+    return None
+
+def get_active_modules(config_path):
+    """Extracts module names from the YAML config without external dependencies."""
+    if not config_path:
+        return None
+        
+    modules = []
+    try:
+        with open(config_path, 'r') as f:
+            in_modules_block = False
+            for line in f:
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'):
+                    continue
+                
+                if stripped.startswith('modules:'):
+                    in_modules_block = True
+                    continue
+                
+                if in_modules_block:
+                    # Look for indented keys (the module names)
+                    if line.startswith('  ') and not line.startswith('    '):
+                        if ':' in stripped:
+                            mod_name = stripped.split(':')[0].strip()
+                            modules.append(mod_name)
+                    elif not line.startswith(' ') and stripped:
+                        break
+        return modules
+    except Exception:
+        return None
+
+def build_probe_url(blackbox_url, target, module, debug):
+    params = {"target": target, "module": module}
+    if debug: params["debug"] = "true"
+    query = urllib.parse.urlencode(params)
+    return "{}/probe?{}".format(blackbox_url.rstrip('/'), query)
+
+def parse_prometheus_text(raw):
+    result = {"probe_success": 0}
+    for line in raw.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        try:
+            if "probe_success" in line and "{" not in line:
+                parts = line.rsplit(None, 1)
+                result["probe_success"] = int(float(parts[1].strip()))
+        except:
+            pass
+    return result
+
+def run_probe(probe_url, timeout):
+    req = urllib.request.Request(probe_url)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.getcode(), resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        return 500, str(e)
+
+def main():
+    parser = argparse.ArgumentParser(description="DevOps Blackbox Prober")
+    parser.add_argument("target", nargs="?", help="Specific target URL")
+    parser.add_argument("--file", "-f", help="Path to input JSON file")
+    parser.add_argument("--blackbox", "-b", default=DEFAULT_BLACKBOX_URL)
+    parser.add_argument("--module", "-m", default=DEFAULT_MODULE)
+    parser.add_argument("--listmodules", action="store_true", help="List modules from config")
+    parser.add_argument("--timeout", "-t", type=int, default=30)
+    args = parser.parse_args()
+
+    # Find the config file using the new recursive search logic
+    config_path = find_config_file(CONFIG_FILENAME)
+
+    if args.listmodules:
+        if not config_path:
+            print("[ERROR] Could not find {} in current or parent directories.".format(CONFIG_FILENAME))
+            sys.exit(1)
+            
+        mods = get_active_modules(config_path)
+        if mods:
+            print("\nActive Modules (found at {}):".format(config_path))
+            for m in mods:
+                print("  - {}".format(m))
+        else:
+            print("[ERROR] Config found but could not parse modules.")
+        sys.exit(0)
+
+    # Process Targets
+    targets_queue = []
+    if args.file:
+        try:
+            with open(args.file, 'r') as f:
+                data = json.load(f)
+                for item in data:
+                    if isinstance(item, dict):
+                        targets_queue.append((item.get("url"), item.get("module", args.module)))
+                    else:
+                        targets_queue.append((item, args.module))
+        except Exception as e:
+            print("[ERROR] Input file error: {}".format(e))
+            sys.exit(1)
+
+    if args.target:
+        targets_queue.append((args.target, args.module))
+
+    if not targets_queue:
+        print("Usage Error: Provide a target URL or a JSON file.")
+        sys.exit(1)
+
+    all_results = []
+    for url, module in targets_queue:
+        if not url: continue
+        print("Probing: {:<40} [Module: {:<15}]".format(url, module), end=" ", flush=True)
+        
+        probe_url = build_probe_url(args.blackbox, url, module, True)
+        status_code, body = run_probe(probe_url, args.timeout)
+        parsed = parse_prometheus_text(body)
+        
+        print("Status: {}".format(parsed["probe_success"]))
+        all_results.append({
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "target": url,
+            "module": module,
+            "probe_success": parsed["probe_success"],
+            "http_status": status_code
+        })
+
+    with open("outputurl.json", 'w') as f:
+        json.dump(all_results, f, indent=2)
+
+if __name__ == "__main__":
+    main()
  
