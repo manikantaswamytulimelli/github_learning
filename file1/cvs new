@@ -1,0 +1,4 @@
+we need to work on seeing if we can implement a maintenance window timer for the blackbox urls
+ 
+can we come up with a good design on that as a new field within the url / json configuration
+ 
